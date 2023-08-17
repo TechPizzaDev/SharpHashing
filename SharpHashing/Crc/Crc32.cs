@@ -170,15 +170,6 @@ namespace SharpHashing.Crc
                 xmm12,
                 xmm13;
 
-            ulong rax;
-            uint eax;
-
-            // load the initial crc value
-            movd(out xmm10, ecx); // initial crc
-            pslldq(ref xmm10, 12); // shift to high order bits
-
-            xmm11 = smask.AsByte(); // byte reflect mask
-
             // receive the initial 128B data, xor the initial crc value
             movdqu(out xmm0, rdx + 16 * 0);
             movdqu(out xmm1, rdx + 16 * 1);
@@ -189,7 +180,13 @@ namespace SharpHashing.Crc
             movdqu(out xmm6, rdx + 16 * 6);
             movdqu(out xmm7, rdx + 16 * 7);
 
+            xmm11 = smask.AsByte(); // byte reflect mask
             pshufb(ref xmm0, xmm11);
+
+            // load the initial crc value
+            movd(out xmm10, ecx); // initial crc
+            pslldq(ref xmm10, 12); // shift to high order bits
+
             // XOR the initial_crc value
             pxor(ref xmm0, xmm10);
             pshufb(ref xmm1, xmm11);
@@ -202,87 +199,84 @@ namespace SharpHashing.Crc
 
             xmm10 = Vector128.Create(rk03, rk04).AsByte(); // xmm10 has rk03 and rk04
 
-            // imm value of pclmulqdq(ref instruction will determine which constant to use
+            // imm value of pclmulqdq instruction will determine which constant to use
             // ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
             // we subtract 256 instead of 128 to save one instruction from the loop
             r8 -= 256;
 
-        // at this section of the code, there is 128*x+y (0<=y<128) bytes of buffer. The _fold_128_B_loop
-        // loop will fold 128B at a time until we have 128+y Bytes of buffer
+            // at this section of the code, there is 128*x+y (0<=y<128) bytes of buffer. The _fold_128_B_loop
+            // loop will fold 128B at a time until we have 128+y Bytes of buffer
 
-        // fold 128B at a time. This section of the code folds 8 xmm registers in parallel
-        _fold_128_B_loop:
-
-            // update the buffer pointer
-            rdx += 128; // buf += 128;
-
-            movdqu(out xmm9, rdx + 16 * 0);
-            movdqu(out xmm12, rdx + 16 * 1);
-            pshufb(ref xmm9, xmm11);
-            pshufb(ref xmm12, xmm11);
-            xmm8 = xmm0;
-            xmm13 = xmm1;
-            pclmulqdq(ref xmm0, xmm10, 0x00);
-            pclmulqdq(ref xmm8, xmm10, 0x11);
-            pclmulqdq(ref xmm1, xmm10, 0x00);
-            pclmulqdq(ref xmm13, xmm10, 0x11);
-            pxor(ref xmm0, xmm9);
-            xorps(ref xmm0, xmm8);
-            pxor(ref xmm1, xmm12);
-            xorps(ref xmm1, xmm13);
-
-            movdqu(out xmm9, rdx + 16 * 2);
-            movdqu(out xmm12, rdx + 16 * 3);
-            pshufb(ref xmm9, xmm11);
-            pshufb(ref xmm12, xmm11);
-            xmm8 = xmm2;
-            xmm13 = xmm3;
-            pclmulqdq(ref xmm2, xmm10, 0x00);
-            pclmulqdq(ref xmm8, xmm10, 0x11);
-            pclmulqdq(ref xmm3, xmm10, 0x00);
-            pclmulqdq(ref xmm13, xmm10, 0x11);
-            pxor(ref xmm2, xmm9);
-            xorps(ref xmm2, xmm8);
-            pxor(ref xmm3, xmm12);
-            xorps(ref xmm3, xmm13);
-
-            movdqu(out xmm9, rdx + 16 * 4);
-            movdqu(out xmm12, rdx + 16 * 5);
-            pshufb(ref xmm9, xmm11);
-            pshufb(ref xmm12, xmm11);
-            xmm8 = xmm4;
-            xmm13 = xmm5;
-            pclmulqdq(ref xmm4, xmm10, 0x00);
-            pclmulqdq(ref xmm8, xmm10, 0x11);
-            pclmulqdq(ref xmm5, xmm10, 0x00);
-            pclmulqdq(ref xmm13, xmm10, 0x11);
-            pxor(ref xmm4, xmm9);
-            xorps(ref xmm4, xmm8);
-            pxor(ref xmm5, xmm12);
-            xorps(ref xmm5, xmm13);
-
-            movdqu(out xmm9, rdx + 16 * 6);
-            movdqu(out xmm12, rdx + 16 * 7);
-            pshufb(ref xmm9, xmm11);
-            pshufb(ref xmm12, xmm11);
-            xmm8 = xmm6;
-            xmm13 = xmm7;
-            pclmulqdq(ref xmm6, xmm10, 0x00);
-            pclmulqdq(ref xmm8, xmm10, 0x11);
-            pclmulqdq(ref xmm7, xmm10, 0x00);
-            pclmulqdq(ref xmm13, xmm10, 0x11);
-            pxor(ref xmm6, xmm9);
-            xorps(ref xmm6, xmm8);
-            pxor(ref xmm7, xmm12);
-            xorps(ref xmm7, xmm13);
-
-            r8 -= 128;
-
-            // check if there is another 128B in the buffer to be able to fold
-            if ((long)r8 >= 128)
+            // fold 128B at a time. This section of the code folds 8 xmm registers in parallel
+            do
             {
-                goto _fold_128_B_loop;
+                // update the buffer pointer
+                rdx += 128; // buf += 128;
+
+                movdqu(out xmm9, rdx + 16 * 0);
+                movdqu(out xmm12, rdx + 16 * 1);
+                pshufb(ref xmm9, xmm11);
+                pshufb(ref xmm12, xmm11);
+                xmm8 = xmm0;
+                xmm13 = xmm1;
+                pclmulqdq(ref xmm0, xmm10, 0x00);
+                pclmulqdq(ref xmm8, xmm10, 0x11);
+                pclmulqdq(ref xmm1, xmm10, 0x00);
+                pclmulqdq(ref xmm13, xmm10, 0x11);
+                pxor(ref xmm0, xmm9);
+                xorps(ref xmm0, xmm8);
+                pxor(ref xmm1, xmm12);
+                xorps(ref xmm1, xmm13);
+
+                movdqu(out xmm9, rdx + 16 * 2);
+                movdqu(out xmm12, rdx + 16 * 3);
+                pshufb(ref xmm9, xmm11);
+                pshufb(ref xmm12, xmm11);
+                xmm8 = xmm2;
+                xmm13 = xmm3;
+                pclmulqdq(ref xmm2, xmm10, 0x00);
+                pclmulqdq(ref xmm8, xmm10, 0x11);
+                pclmulqdq(ref xmm3, xmm10, 0x00);
+                pclmulqdq(ref xmm13, xmm10, 0x11);
+                pxor(ref xmm2, xmm9);
+                xorps(ref xmm2, xmm8);
+                pxor(ref xmm3, xmm12);
+                xorps(ref xmm3, xmm13);
+
+                movdqu(out xmm9, rdx + 16 * 4);
+                movdqu(out xmm12, rdx + 16 * 5);
+                pshufb(ref xmm9, xmm11);
+                pshufb(ref xmm12, xmm11);
+                xmm8 = xmm4;
+                xmm13 = xmm5;
+                pclmulqdq(ref xmm4, xmm10, 0x00);
+                pclmulqdq(ref xmm8, xmm10, 0x11);
+                pclmulqdq(ref xmm5, xmm10, 0x00);
+                pclmulqdq(ref xmm13, xmm10, 0x11);
+                pxor(ref xmm4, xmm9);
+                xorps(ref xmm4, xmm8);
+                pxor(ref xmm5, xmm12);
+                xorps(ref xmm5, xmm13);
+
+                movdqu(out xmm9, rdx + 16 * 6);
+                movdqu(out xmm12, rdx + 16 * 7);
+                pshufb(ref xmm9, xmm11);
+                pshufb(ref xmm12, xmm11);
+                xmm8 = xmm6;
+                xmm13 = xmm7;
+                pclmulqdq(ref xmm6, xmm10, 0x00);
+                pclmulqdq(ref xmm8, xmm10, 0x11);
+                pclmulqdq(ref xmm7, xmm10, 0x00);
+                pclmulqdq(ref xmm13, xmm10, 0x11);
+                pxor(ref xmm6, xmm9);
+                xorps(ref xmm6, xmm8);
+                pxor(ref xmm7, xmm12);
+                xorps(ref xmm7, xmm13);
+
+                r8 -= 128;
             }
+            // check if there is another 128B in the buffer to be able to fold
+            while ((long)r8 >= 128);
             // ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
             rdx += 128;
@@ -351,22 +345,22 @@ namespace SharpHashing.Crc
         // continue folding 16B at a time
 
         _16B_reduction_loop:
-            xmm8 = xmm7;
-            pclmulqdq(ref xmm7, xmm10, 0x11);
-            pclmulqdq(ref xmm8, xmm10, 0x00);
-            pxor(ref xmm7, xmm8);
-            movdqu(out xmm0, rdx);
-            pshufb(ref xmm0, xmm11);
-            pxor(ref xmm7, xmm0);
-            rdx += 16;
-            r8 -= 16;
+            do
+            {
+                xmm8 = xmm7;
+                pclmulqdq(ref xmm7, xmm10, 0x11);
+                pclmulqdq(ref xmm8, xmm10, 0x00);
+                pxor(ref xmm7, xmm8);
+                movdqu(out xmm0, rdx);
+                pshufb(ref xmm0, xmm11);
+                pxor(ref xmm7, xmm0);
+                rdx += 16;
+                r8 -= 16;
+            }
             // instead of a cmp instruction, we utilize the flags with the jge instruction
             // equivalent of: cmp r8, 16-16
             // check if there is any more 16B in the buffer to be able to fold
-            if ((long)r8 >= 0)
-            {
-                goto _16B_reduction_loop;
-            }
+            while ((long)r8 >= 0);
 
         // now we have 16+z bytes left to reduce, where 0<= z < 16.
         // first, we reduce the data in the xmm7 register
@@ -390,9 +384,7 @@ namespace SharpHashing.Crc
 
             // get rid of the extra data that was loaded before
             // load the shift constant
-            rax = (ulong)((byte*)pshufb_shf_table + 16);
-            rax -= r8;
-            movdqu(out xmm0, (byte*)rax);
+            movdqu(out xmm0, (byte*)pshufb_shf_table + 16 - r8);
 
             // shift xmm2 to the left by r8 bytes
             pshufb(ref xmm2, xmm0);
@@ -437,7 +429,7 @@ namespace SharpHashing.Crc
             pclmulqdq(ref xmm7, xmm10, 0x11);
             pslldq(ref xmm7, 4);
             pxor(ref xmm7, xmm0);
-            eax = Sse41.Extract(xmm7.AsUInt32(), 1);
+            uint eax = Sse41.Extract(xmm7.AsUInt32(), 1);
 
         _cleanup:
             return eax;
@@ -518,8 +510,7 @@ namespace SharpHashing.Crc
             }
 
             // load 8 Bytes
-            rax = *(ulong*)rdx;
-            *(ulong*)r11 = rax;
+            *(ulong*)r11 = *(ulong*)rdx;
             r11 += 8;
             r8 -= 8;
             rdx += 8;
@@ -531,8 +522,7 @@ namespace SharpHashing.Crc
             }
 
             // load 4 Bytes
-            eax = *(uint*)rdx;
-            *(uint*)r11 = eax;
+            *(uint*)r11 = *(uint*)rdx;
             r11 += 4;
             r8 -= 4;
             rdx += 4;
@@ -544,8 +534,7 @@ namespace SharpHashing.Crc
             }
 
             // load 2 Bytes
-            ushort ax = *(ushort*)rdx;
-            *(ushort*)r11 = ax;
+            *(ushort*)r11 = *(ushort*)rdx;
             r11 += 2;
             r8 -= 2;
             rdx += 2;
@@ -557,17 +546,14 @@ namespace SharpHashing.Crc
             }
 
             // load 1 Byte
-            byte al = *rdx;
-            *r11 = al;
+            r11[0] = rdx[0];
 
         _zero_left:
             movdqa(out xmm7, (byte*)&rsp);
             pshufb(ref xmm7, xmm11);
             pxor(ref xmm7, xmm0); // xor the initial crc value
 
-            rax = (ulong)((byte*)pshufb_shf_table + 16);
-            rax -= r9;
-            movdqu(out xmm0, (byte*)rax);
+            movdqu(out xmm0, (byte*)pshufb_shf_table + 16 - r9);
             pxor(ref xmm0, mask1.AsByte());
 
             pshufb(ref xmm7, xmm0);
@@ -588,14 +574,9 @@ namespace SharpHashing.Crc
             }
 
             // load 3 Bytes
-            al = *rdx;
-            r11[0] = al;
-
-            al = *(rdx + 1);
-            r11[1] = al;
-
-            al = *(rdx + 2);
-            r11[2] = al;
+            r11[0] = rdx[0];
+            r11[1] = rdx[1];
+            r11[2] = rdx[2];
 
             movdqa(out xmm7, (byte*)&rsp);
             pshufb(ref xmm7, xmm11);
@@ -612,11 +593,8 @@ namespace SharpHashing.Crc
             }
 
             // load 2 Bytes
-            al = rdx[0];
-            r11[0] = al;
-
-            al = rdx[1];
-            r11[1] = al;
+            r11[0] = rdx[0];
+            r11[1] = rdx[1];
 
             movdqa(out xmm7, (byte*)&rsp);
             pshufb(ref xmm7, xmm11);
@@ -629,8 +607,7 @@ namespace SharpHashing.Crc
         _only_less_than_2:
 
             // load 1 Byte
-            al = *rdx;
-            *r11 = al;
+            r11[0] = rdx[0];
 
             movdqa(out xmm7, (byte*)&rsp);
             pshufb(ref xmm7, xmm11);
