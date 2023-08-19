@@ -61,7 +61,7 @@ namespace SharpHashing.Crc
         const ulong rk20 = 0x_ab40b71e_00000000; // 2^(32* 9) mod P(x) << 32
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public static uint crc32f(uint ecx, byte* rdx, ulong r8)
+        public static uint crc32f(uint ecx, ref byte rdx, nuint r8)
         {
             var mask1 = Vector128.Create(0x_80808080_80808080, 0x_80808080_80808080).AsByte();
 
@@ -97,14 +97,14 @@ namespace SharpHashing.Crc
             }
 
             // receive the initial 128B data, xor the initial crc value
-            var data0 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 0), smask).AsUInt64();
-            var data1 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 1), smask).AsUInt64();
-            var data2 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 2), smask).AsUInt64();
-            var data3 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 3), smask).AsUInt64();
-            var data4 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 4), smask).AsUInt64();
-            var data5 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 5), smask).AsUInt64();
-            var data6 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 6), smask).AsUInt64();
-            var data7 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 7), smask).AsUInt64();
+            var data0 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 0), smask).AsUInt64();
+            var data1 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 1), smask).AsUInt64();
+            var data2 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 2), smask).AsUInt64();
+            var data3 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 3), smask).AsUInt64();
+            var data4 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 4), smask).AsUInt64();
+            var data5 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 5), smask).AsUInt64();
+            var data6 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 6), smask).AsUInt64();
+            var data7 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 7), smask).AsUInt64();
 
             // load the initial crc value
             var eInitialCrc = Vector128.CreateScalar(ecx).AsUInt64(); // initial crc
@@ -127,25 +127,25 @@ namespace SharpHashing.Crc
             do
             {
                 // update the buffer pointer
-                rdx += 128; // buf += 128;
+                rdx = ref Unsafe.Add(ref rdx, 128); // buf += 128;
 
-                var rd0 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 0), smask).AsUInt64();
-                var rd1 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 1), smask).AsUInt64();
+                var rd0 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 0), smask).AsUInt64();
+                var rd1 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 1), smask).AsUInt64();
                 data0 = VectorHelper.FoldPolynomialPair(rd0, data0, rk03_04);
                 data1 = VectorHelper.FoldPolynomialPair(rd1, data1, rk03_04);
 
-                var rd2 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 2), smask).AsUInt64();
-                var rd3 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 3), smask).AsUInt64();
+                var rd2 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 2), smask).AsUInt64();
+                var rd3 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 3), smask).AsUInt64();
                 data2 = VectorHelper.FoldPolynomialPair(rd2, data2, rk03_04);
                 data3 = VectorHelper.FoldPolynomialPair(rd3, data3, rk03_04);
 
-                var rd4 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 4), smask).AsUInt64();
-                var rd5 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 5), smask).AsUInt64();
+                var rd4 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 4), smask).AsUInt64();
+                var rd5 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 5), smask).AsUInt64();
                 data4 = VectorHelper.FoldPolynomialPair(rd4, data4, rk03_04);
                 data5 = VectorHelper.FoldPolynomialPair(rd5, data5, rk03_04);
 
-                var rd6 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 6), smask).AsUInt64();
-                var rd7 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 7), smask).AsUInt64();
+                var rd6 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 6), smask).AsUInt64();
+                var rd7 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, 16 * 7), smask).AsUInt64();
                 data6 = VectorHelper.FoldPolynomialPair(rd6, data6, rk03_04);
                 data7 = VectorHelper.FoldPolynomialPair(rd7, data7, rk03_04);
 
@@ -155,7 +155,7 @@ namespace SharpHashing.Crc
             while ((long)r8 >= 128);
             // ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-            rdx += 128;
+            rdx = ref Unsafe.Add(ref rdx, 128);
             // at this point, the buffer pointer is pointing at the last y Bytes of the buffer
             // fold the 8 xmm registers to 1 xmm register with different constants
 
@@ -183,10 +183,10 @@ namespace SharpHashing.Crc
             var rk01_02 = Vector128.Create(rk01, rk02);
             do
             {
-                var data = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64();
+                var data = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx), smask).AsUInt64();
                 data7 = VectorHelper.FoldPolynomialPair(data, data7, rk01_02);
 
-                rdx += 16;
+                rdx = ref Unsafe.Add(ref rdx, 16);
                 r8 -= 16;
             }
             // instead of a cmp instruction, we utilize the flags with the jge instruction
@@ -221,7 +221,7 @@ namespace SharpHashing.Crc
                 shufTab2 ^= mask1;
                 data7 = VectorHelper.Shuffle(data7.AsByte(), shufTab2).AsUInt64();
 
-                var rdr = VectorHelper.Shuffle(Vector128.Load(rdx - 16 + r8), smask);
+                var rdr = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx, r8 - 16), smask);
 
                 // fold 16 Bytes
                 var x2 = VectorHelper.BlendVariable(rdr, tmp, shufTab2).AsUInt64();
@@ -275,11 +275,11 @@ namespace SharpHashing.Crc
 
             var initialCrc = Vector128.CreateScalar(ecx).AsUInt64(); // get the initial crc value
             initialCrc = VectorHelper.ShiftLeftInVector(initialCrc, 12); // align it to its correct place
-            data7 = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64(); // load the plaintext
+            data7 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx), smask).AsUInt64(); // load the plaintext
             data7 ^= initialCrc;
 
             // update the buffer pointer
-            rdx += 16;
+            rdx = ref Unsafe.Add(ref rdx, 16);
 
             // update the counter. subtract 32 instead of 16 to save one instruction from the loop
             r8 -= 32;
@@ -307,9 +307,9 @@ namespace SharpHashing.Crc
                     goto _less_than_16_left;
                 }
 
-                data7 = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64(); // load the plaintext
+                data7 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx), smask).AsUInt64(); // load the plaintext
                 data7 ^= initialCrc; // xor the initial crc value
-                rdx += 16;
+                rdx = ref Unsafe.Add(ref rdx, 16);
                 r8 -= 16;
 
                 goto _get_last_two_xmms;
@@ -334,10 +334,10 @@ namespace SharpHashing.Crc
             }
 
             // load 8 Bytes
-            *(ulong*)r11 = *(ulong*)rdx;
+            *(ulong*)r11 = Unsafe.As<byte, ulong>(ref rdx);
             r11 += 8;
             r8 -= 8;
-            rdx += 8;
+            rdx = ref Unsafe.Add(ref rdx, 8);
 
         _less_than_8_left:
             {
@@ -347,10 +347,10 @@ namespace SharpHashing.Crc
                 }
 
                 // load 4 Bytes
-                *(uint*)r11 = *(uint*)rdx;
+                *(uint*)r11 = Unsafe.As<byte, uint>(ref rdx);
                 r11 += 4;
                 r8 -= 4;
-                rdx += 4;
+                rdx = ref Unsafe.Add(ref rdx, 4);
             }
 
         _less_than_4_left:
@@ -361,10 +361,10 @@ namespace SharpHashing.Crc
                 }
 
                 // load 2 Bytes
-                *(ushort*)r11 = *(ushort*)rdx;
+                *(ushort*)r11 = Unsafe.As<byte, ushort>(ref rdx);
                 r11 += 2;
                 r8 -= 2;
-                rdx += 2;
+                rdx = ref Unsafe.Add(ref rdx, 2);
             }
 
         _less_than_2_left:
@@ -375,7 +375,7 @@ namespace SharpHashing.Crc
                 }
 
                 // load 1 Byte
-                r11[0] = rdx[0];
+                r11[0] = rdx;
             }
 
         _zero_left:
@@ -393,7 +393,7 @@ namespace SharpHashing.Crc
         //align 16
         _exact_16_left:
             {
-                data7 = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64();
+                data7 = VectorHelper.Shuffle(Vector128.LoadUnsafe(ref rdx), smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
 
                 goto _128_done;
@@ -407,9 +407,8 @@ namespace SharpHashing.Crc
                 }
 
                 // load 3 Bytes
-                r11[0] = rdx[0];
-                r11[1] = rdx[1];
-                r11[2] = rdx[2];
+                *(ushort*)r11 = Unsafe.As<byte, ushort>(ref rdx);
+                r11[2] = Unsafe.Add(ref rdx, 2);
 
                 data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
@@ -427,8 +426,7 @@ namespace SharpHashing.Crc
                 }
 
                 // load 2 Bytes
-                r11[0] = rdx[0];
-                r11[1] = rdx[1];
+                *(ushort*)r11 = Unsafe.As<byte, ushort>(ref rdx);
 
                 data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
@@ -441,7 +439,7 @@ namespace SharpHashing.Crc
         _only_less_than_2:
             {
                 // load 1 Byte
-                r11[0] = rdx[0];
+                r11[0] = rdx;
 
                 data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
