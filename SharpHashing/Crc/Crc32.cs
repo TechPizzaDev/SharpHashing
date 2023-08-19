@@ -32,8 +32,8 @@
 //;  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 
 namespace SharpHashing.Crc
 {
@@ -60,56 +60,7 @@ namespace SharpHashing.Crc
         const ulong rk19 = 0x_cd8c54b5_00000000; // 2^(32* 7) mod P(x) << 32
         const ulong rk20 = 0x_ab40b71e_00000000; // 2^(32* 9) mod P(x) << 32
 
-        private static void pclmulqdq(ref Vector128<byte> xmm, Vector128<byte> m128, byte imm8)
-        {
-            xmm = Pclmulqdq.CarrylessMultiply(xmm.AsUInt64(), m128.AsUInt64(), imm8).AsByte();
-        }
-
-        private static void movdqu(out Vector128<byte> xmm, byte* ptr)
-        {
-            xmm = Vector128.Load(ptr);
-        }
-
-        private static void movdqa(out Vector128<byte> xmm, byte* ptr)
-        {
-            xmm = Vector128.LoadAligned(ptr);
-        }
-
-        private static void movdqa(out Vector128<byte> xmm, ulong e0, ulong e1)
-        {
-            xmm = Vector128.Create(e0, e1).AsByte();
-        }
-
-        private static void movd(out Vector128<byte> xmm, uint value)
-        {
-            xmm = Vector128.CreateScalar(value).AsByte();
-        }
-
-        private static void pslldq(ref Vector128<byte> a, byte b)
-        {
-            a = Sse2.ShiftLeftLogical128BitLane(a.AsUInt64(), b).AsByte();
-        }
-
-        private static void psrldq(ref Vector128<byte> a, byte b)
-        {
-            a = Sse2.ShiftRightLogical128BitLane(a.AsUInt64(), b).AsByte();
-        }
-
-        private static void pxor(ref Vector128<byte> a, Vector128<byte> b)
-        {
-            a = Sse2.Xor(a, b);
-        }
-
-        private static void xorps(ref Vector128<byte> a, Vector128<byte> b)
-        {
-            a = Sse.Xor(a.AsSingle(), b.AsSingle()).AsByte();
-        }
-
-        private static void pshufb(ref Vector128<byte> a, Vector128<byte> b)
-        {
-            a = Ssse3.Shuffle(a, b);
-        }
-
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static uint crc32f(uint ecx, byte* rdx, ulong r8)
         {
             var mask1 = Vector128.Create(0x_80808080_80808080, 0x_80808080_80808080).AsByte();
@@ -146,37 +97,28 @@ namespace SharpHashing.Crc
             }
 
             // receive the initial 128B data, xor the initial crc value
-            movdqu(out var data0, rdx + 16 * 0);
-            movdqu(out var data1, rdx + 16 * 1);
-            movdqu(out var data2, rdx + 16 * 2);
-            movdqu(out var data3, rdx + 16 * 3);
-            movdqu(out var data4, rdx + 16 * 4);
-            movdqu(out var data5, rdx + 16 * 5);
-            movdqu(out var data6, rdx + 16 * 6);
-            movdqu(out var data7, rdx + 16 * 7);
-
-            pshufb(ref data0, smask);
+            var data0 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 0), smask).AsUInt64();
+            var data1 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 1), smask).AsUInt64();
+            var data2 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 2), smask).AsUInt64();
+            var data3 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 3), smask).AsUInt64();
+            var data4 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 4), smask).AsUInt64();
+            var data5 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 5), smask).AsUInt64();
+            var data6 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 6), smask).AsUInt64();
+            var data7 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 7), smask).AsUInt64();
 
             // load the initial crc value
-            movd(out var eInitialCrc, ecx); // initial crc
-            pslldq(ref eInitialCrc, 12); // shift to high order bits
+            var eInitialCrc = Vector128.CreateScalar(ecx).AsUInt64(); // initial crc
+            eInitialCrc = VectorHelper.ShiftLeftInVector(eInitialCrc, 12); // shift to high order bits
 
             // XOR the initial_crc value
-            pxor(ref data0, eInitialCrc);
-            pshufb(ref data1, smask);
-            pshufb(ref data2, smask);
-            pshufb(ref data3, smask);
-            pshufb(ref data4, smask);
-            pshufb(ref data5, smask);
-            pshufb(ref data6, smask);
-            pshufb(ref data7, smask);
-
-            var rk03_04 = Vector128.Create(rk03, rk04).AsByte(); // xmm10 has rk03 and rk04
+            data0 ^= eInitialCrc;
 
             // imm value of pclmulqdq instruction will determine which constant to use
             // ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
             // we subtract 256 instead of 128 to save one instruction from the loop
             r8 -= 256;
+
+            var rk03_04 = Vector128.Create(rk03, rk04); // xmm10 has rk03 and rk04
 
             // at this section of the code, there is 128*x+y (0<=y<128) bytes of buffer. The _fold_128_B_loop
             // loop will fold 128B at a time until we have 128+y Bytes of buffer
@@ -187,65 +129,25 @@ namespace SharpHashing.Crc
                 // update the buffer pointer
                 rdx += 128; // buf += 128;
 
-                movdqu(out var rd0, rdx + 16 * 0);
-                movdqu(out var rd1, rdx + 16 * 1);
-                pshufb(ref rd0, smask);
-                pshufb(ref rd1, smask);
-                var d0 = data0;
-                var d1 = data1;
-                pclmulqdq(ref data0, rk03_04, 0x00);
-                pclmulqdq(ref d0, rk03_04, 0x11);
-                pclmulqdq(ref data1, rk03_04, 0x00);
-                pclmulqdq(ref d1, rk03_04, 0x11);
-                pxor(ref data0, rd0);
-                xorps(ref data0, d0);
-                pxor(ref data1, rd1);
-                xorps(ref data1, d1);
+                var rd0 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 0), smask).AsUInt64();
+                var rd1 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 1), smask).AsUInt64();
+                data0 = VectorHelper.FoldPolynomialPair(rd0, data0, rk03_04);
+                data1 = VectorHelper.FoldPolynomialPair(rd1, data1, rk03_04);
 
-                movdqu(out var rd2, rdx + 16 * 2);
-                movdqu(out var rd3, rdx + 16 * 3);
-                pshufb(ref rd2, smask);
-                pshufb(ref rd3, smask);
-                var d2 = data2;
-                var d3 = data3;
-                pclmulqdq(ref data2, rk03_04, 0x00);
-                pclmulqdq(ref d2, rk03_04, 0x11);
-                pclmulqdq(ref data3, rk03_04, 0x00);
-                pclmulqdq(ref d3, rk03_04, 0x11);
-                pxor(ref data2, rd2);
-                xorps(ref data2, d2);
-                pxor(ref data3, rd3);
-                xorps(ref data3, d3);
+                var rd2 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 2), smask).AsUInt64();
+                var rd3 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 3), smask).AsUInt64();
+                data2 = VectorHelper.FoldPolynomialPair(rd2, data2, rk03_04);
+                data3 = VectorHelper.FoldPolynomialPair(rd3, data3, rk03_04);
 
-                movdqu(out var rd4, rdx + 16 * 4);
-                movdqu(out var rd5, rdx + 16 * 5);
-                pshufb(ref rd4, smask);
-                pshufb(ref rd5, smask);
-                var d4 = data4;
-                var d5 = data5;
-                pclmulqdq(ref data4, rk03_04, 0x00);
-                pclmulqdq(ref d4, rk03_04, 0x11);
-                pclmulqdq(ref data5, rk03_04, 0x00);
-                pclmulqdq(ref d5, rk03_04, 0x11);
-                pxor(ref data4, rd4);
-                xorps(ref data4, d4);
-                pxor(ref data5, rd5);
-                xorps(ref data5, d5);
+                var rd4 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 4), smask).AsUInt64();
+                var rd5 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 5), smask).AsUInt64();
+                data4 = VectorHelper.FoldPolynomialPair(rd4, data4, rk03_04);
+                data5 = VectorHelper.FoldPolynomialPair(rd5, data5, rk03_04);
 
-                movdqu(out var rd6, rdx + 16 * 6);
-                movdqu(out var rd7, rdx + 16 * 7);
-                pshufb(ref rd6, smask);
-                pshufb(ref rd7, smask);
-                var d6 = data6;
-                var d7 = data7;
-                pclmulqdq(ref data6, rk03_04, 0x00);
-                pclmulqdq(ref d6, rk03_04, 0x11);
-                pclmulqdq(ref data7, rk03_04, 0x00);
-                pclmulqdq(ref d7, rk03_04, 0x11);
-                pxor(ref data6, rd6);
-                xorps(ref data6, d6);
-                pxor(ref data7, rd7);
-                xorps(ref data7, d7);
+                var rd6 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 6), smask).AsUInt64();
+                var rd7 = VectorHelper.Shuffle(Vector128.Load(rdx + 16 * 7), smask).AsUInt64();
+                data6 = VectorHelper.FoldPolynomialPair(rd6, data6, rk03_04);
+                data7 = VectorHelper.FoldPolynomialPair(rd7, data7, rk03_04);
 
                 r8 -= 128;
             }
@@ -257,54 +159,13 @@ namespace SharpHashing.Crc
             // at this point, the buffer pointer is pointing at the last y Bytes of the buffer
             // fold the 8 xmm registers to 1 xmm register with different constants
 
-            movdqa(out var rk09_10, rk09, rk10);
-            var xmm8 = data0;
-            pclmulqdq(ref data0, rk09_10, 0x11);
-            pclmulqdq(ref xmm8, rk09_10, 0x00);
-            pxor(ref data7, xmm8);
-            xorps(ref data7, data0);
-
-            movdqa(out var rk11_12, rk11, rk12);
-            xmm8 = data1;
-            pclmulqdq(ref data1, rk11_12, 0x11);
-            pclmulqdq(ref xmm8, rk11_12, 0x00);
-            pxor(ref data7, xmm8);
-            xorps(ref data7, data1);
-
-            movdqa(out var rk13_14, rk13, rk14);
-            xmm8 = data2;
-            pclmulqdq(ref data2, rk13_14, 0x11);
-            pclmulqdq(ref xmm8, rk13_14, 0x00);
-            pxor(ref data7, xmm8);
-            pxor(ref data7, data2);
-
-            movdqa(out var rk15_16, rk15, rk16);
-            xmm8 = data3;
-            pclmulqdq(ref data3, rk15_16, 0x11);
-            pclmulqdq(ref xmm8, rk15_16, 0x00);
-            pxor(ref data7, xmm8);
-            xorps(ref data7, data3);
-
-            movdqa(out var rk17_18, rk17, rk18);
-            xmm8 = data4;
-            pclmulqdq(ref data4, rk17_18, 0x11);
-            pclmulqdq(ref xmm8, rk17_18, 0x00);
-            pxor(ref data7, xmm8);
-            pxor(ref data7, data4);
-
-            movdqa(out var rk19_20, rk19, rk20);
-            xmm8 = data5;
-            pclmulqdq(ref data5, rk19_20, 0x11);
-            pclmulqdq(ref xmm8, rk19_20, 0x00);
-            pxor(ref data7, xmm8);
-            xorps(ref data7, data5);
-
-            movdqa(out var rk01_02, rk01, rk02);
-            xmm8 = data6;
-            pclmulqdq(ref data6, rk01_02, 0x11);
-            pclmulqdq(ref xmm8, rk01_02, 0x00);
-            pxor(ref data7, xmm8);
-            pxor(ref data7, data6);
+            data7 = VectorHelper.FoldPolynomialPair(data7, data0, Vector128.Create(rk09, rk10));
+            data7 = VectorHelper.FoldPolynomialPair(data7, data1, Vector128.Create(rk11, rk12));
+            data7 = VectorHelper.FoldPolynomialPair(data7, data2, Vector128.Create(rk13, rk14));
+            data7 = VectorHelper.FoldPolynomialPair(data7, data3, Vector128.Create(rk15, rk16));
+            data7 = VectorHelper.FoldPolynomialPair(data7, data4, Vector128.Create(rk17, rk18));
+            data7 = VectorHelper.FoldPolynomialPair(data7, data5, Vector128.Create(rk19, rk20));
+            data7 = VectorHelper.FoldPolynomialPair(data7, data6, Vector128.Create(rk01, rk02));
 
             // instead of 128, we add 112 to the loop counter to save 1 instruction from the loop
             // instead of a cmp instruction, we use the negative flag with the jl instruction
@@ -319,15 +180,12 @@ namespace SharpHashing.Crc
         // continue folding 16B at a time
 
         _16B_reduction_loop:
+            var rk01_02 = Vector128.Create(rk01, rk02);
             do
             {
-                xmm8 = data7;
-                pclmulqdq(ref data7, rk01_02, 0x11);
-                pclmulqdq(ref xmm8, rk01_02, 0x00);
-                pxor(ref data7, xmm8);
-                movdqu(out var dataTmp, rdx);
-                pshufb(ref dataTmp, smask);
-                pxor(ref data7, dataTmp);
+                var data = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64();
+                data7 = VectorHelper.FoldPolynomialPair(data, data7, rk01_02);
+
                 rdx += 16;
                 r8 -= 16;
             }
@@ -354,60 +212,54 @@ namespace SharpHashing.Crc
             {
                 // get rid of the extra data that was loaded before
                 // load the shift constant
-                movdqu(out var shufTab2, (byte*)&pshufb_shf_table + 16 - r8);
+                var shufTab2 = Vector128.Load((byte*)&pshufb_shf_table + 16 - r8);
 
                 // shift xmm2 to the left by r8 bytes
-                var tmp = data7;
-                pshufb(ref tmp, shufTab2);
+                var tmp = VectorHelper.Shuffle(data7.AsByte(), shufTab2);
 
                 // shift xmm7 to the right by 16-r8 byte
-                pxor(ref shufTab2, mask1);
-                pshufb(ref data7, shufTab2);
+                shufTab2 ^= mask1;
+                data7 = VectorHelper.Shuffle(data7.AsByte(), shufTab2).AsUInt64();
 
-                movdqu(out var rdr, rdx - 16 + r8);
-                pshufb(ref rdr, smask);
+                var rdr = VectorHelper.Shuffle(Vector128.Load(rdx - 16 + r8), smask);
 
                 // fold 16 Bytes
-                var x2 = Sse41.BlendVariable(rdr, tmp, shufTab2);
-                var x1 = data7;
-                pclmulqdq(ref data7, rk01_02, 0x11);
-                pclmulqdq(ref x1, rk01_02, 0x00);
-                pxor(ref data7, x1);
-                pxor(ref data7, x2);
+                var x2 = VectorHelper.BlendVariable(rdr, tmp, shufTab2).AsUInt64();
+                data7 = VectorHelper.FoldPolynomialPair(x2, data7, Vector128.Create(rk01, rk02));
             }
 
         _128_done:
             {
                 // compute crc of a 128-bit value
-                movdqa(out var rk05_06, rk05, rk06); // rk05 and rk06 in xmm10
+                var rk05_06 = Vector128.Create(rk05, rk06); // rk05 and rk06 in xmm10
                 var tmp = data7;
 
                 // 64b fold
-                pclmulqdq(ref data7, rk05_06, 0x01);
-                pslldq(ref tmp, 8);
-                pxor(ref data7, tmp);
+                data7 = VectorHelper.CarrylessMultiplyLeftUpperRightLower(data7, rk05_06);
+                tmp = VectorHelper.ShiftLeftInVector(tmp, 8);
+                data7 ^= tmp;
 
                 // 32b fold
-                var mask2 = Vector128.Create(0x_FFFFFFFF_FFFFFFFF, 0x_00000000_FFFFFFFF).AsByte();
-                tmp = Sse2.And(data7, mask2);
+                var mask2 = Vector128.Create(0x_FFFFFFFF_FFFFFFFF, 0x_00000000_FFFFFFFF);
+                tmp = data7 & mask2;
 
-                psrldq(ref data7, 12);
-                pclmulqdq(ref data7, rk05_06, 0x10);
-                pxor(ref data7, tmp);
+                data7 = VectorHelper.ShiftRightInVector(data7, 12);
+                data7 = VectorHelper.CarrylessMultiplyLeftLowerRightUpper(data7, rk05_06);
+                data7 ^= tmp;
             }
 
             uint eax;
         // barrett reduction
         _barrett:
             {
-                movdqa(out var rk07_08, rk07, rk08); // rk07 and rk08 in xmm10
+                var rk07_08 = Vector128.Create(rk07, rk08); // rk07 and rk08 in xmm10
                 var tmp = data7;
-                pclmulqdq(ref data7, rk07_08, 0x01);
-                pslldq(ref data7, 4);
-                pclmulqdq(ref data7, rk07_08, 0x11);
-                pslldq(ref data7, 4);
-                pxor(ref data7, tmp);
-                eax = Sse41.Extract(data7.AsUInt32(), 1);
+                data7 = VectorHelper.CarrylessMultiplyLeftUpperRightLower(data7, rk07_08);
+                data7 = VectorHelper.ShiftLeftInVector(data7, 4);
+                data7 = VectorHelper.CarrylessMultiplyUpper(data7, rk07_08);
+                data7 = VectorHelper.ShiftLeftInVector(data7, 4);
+                data7 ^= tmp;
+                eax = data7.AsUInt32().GetElement(1);
             }
 
         _cleanup:
@@ -421,14 +273,10 @@ namespace SharpHashing.Crc
                 goto _less_than_32;
             }
 
-            // if there is, load the constants
-            movdqa(out rk01_02, rk01, rk02); // rk01 and rk02 in xmm10
-
-            movd(out var initialCrc, ecx); // get the initial crc value
-            pslldq(ref initialCrc, 12); // align it to its correct place
-            movdqu(out data7, rdx); // load the plaintext
-            pshufb(ref data7, smask);
-            pxor(ref data7, initialCrc);
+            var initialCrc = Vector128.CreateScalar(ecx).AsUInt64(); // get the initial crc value
+            initialCrc = VectorHelper.ShiftLeftInVector(initialCrc, 12); // align it to its correct place
+            data7 = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64(); // load the plaintext
+            data7 ^= initialCrc;
 
             // update the buffer pointer
             rdx += 16;
@@ -447,8 +295,8 @@ namespace SharpHashing.Crc
                     goto _cleanup;
                 }
 
-                movd(out initialCrc, ecx); // get the initial crc value
-                pslldq(ref initialCrc, 12); // align it to its correct place
+                initialCrc = Vector128.CreateScalar(ecx).AsUInt64(); // get the initial crc value
+                initialCrc = VectorHelper.ShiftLeftInVector(initialCrc, 12); // align it to its correct place
 
                 if (r8 == 16)
                 {
@@ -459,12 +307,11 @@ namespace SharpHashing.Crc
                     goto _less_than_16_left;
                 }
 
-                movdqu(out data7, rdx); // load the plaintext
-                pshufb(ref data7, smask);
-                pxor(ref data7, initialCrc); // xor the initial crc value
+                data7 = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64(); // load the plaintext
+                data7 ^= initialCrc; // xor the initial crc value
                 rdx += 16;
                 r8 -= 16;
-                movdqa(out rk01_02, rk01, rk02); // rk01 and rk02 in xmm10
+
                 goto _get_last_two_xmms;
             }
 
@@ -533,23 +380,21 @@ namespace SharpHashing.Crc
 
         _zero_left:
             {
-                movdqa(out data7, (byte*)&rsp);
-                pshufb(ref data7, smask);
-                pxor(ref data7, initialCrc); // xor the initial crc value
+                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 ^= initialCrc; // xor the initial crc value
 
-                movdqu(out var shufTab, (byte*)&pshufb_shf_table + 16 - r9);
-                pxor(ref shufTab, mask1.AsByte());
+                var shufTab = Vector128.Load((byte*)&pshufb_shf_table + 16 - r9);
+                var shufMask = shufTab ^ mask1.AsByte();
+                data7 = VectorHelper.Shuffle(data7.AsByte(), shufMask).AsUInt64();
 
-                pshufb(ref data7, shufTab);
                 goto _128_done;
             }
 
         //align 16
         _exact_16_left:
             {
-                movdqu(out data7, rdx);
-                pshufb(ref data7, smask);
-                pxor(ref data7, initialCrc); // xor the initial crc value
+                data7 = VectorHelper.Shuffle(Vector128.Load(rdx), smask).AsUInt64();
+                data7 ^= initialCrc; // xor the initial crc value
 
                 goto _128_done;
             }
@@ -566,11 +411,10 @@ namespace SharpHashing.Crc
                 r11[1] = rdx[1];
                 r11[2] = rdx[2];
 
-                movdqa(out data7, (byte*)&rsp);
-                pshufb(ref data7, smask);
-                pxor(ref data7, initialCrc); // xor the initial crc value
+                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 ^= initialCrc; // xor the initial crc value
 
-                psrldq(ref data7, 5);
+                data7 = VectorHelper.ShiftRightInVector(data7, 5);
 
                 goto _barrett;
             }
@@ -586,11 +430,10 @@ namespace SharpHashing.Crc
                 r11[0] = rdx[0];
                 r11[1] = rdx[1];
 
-                movdqa(out data7, (byte*)&rsp);
-                pshufb(ref data7, smask);
-                pxor(ref data7, initialCrc); // xor the initial crc value
+                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 ^= initialCrc; // xor the initial crc value
 
-                psrldq(ref data7, 6);
+                data7 = VectorHelper.ShiftRightInVector(data7, 6);
 
                 goto _barrett;
             }
@@ -600,11 +443,10 @@ namespace SharpHashing.Crc
                 // load 1 Byte
                 r11[0] = rdx[0];
 
-                movdqa(out data7, (byte*)&rsp);
-                pshufb(ref data7, smask);
-                pxor(ref data7, initialCrc); // xor the initial crc value
+                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 ^= initialCrc; // xor the initial crc value
 
-                psrldq(ref data7, 7);
+                data7 = VectorHelper.ShiftRightInVector(data7, 7);
 
                 goto _barrett;
             }
