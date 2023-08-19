@@ -380,11 +380,11 @@ namespace SharpHashing.Crc
 
         _zero_left:
             {
-                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
 
                 var shufTab = Vector128.Load((byte*)&pshufb_shf_table + 16 - r9);
-                var shufMask = shufTab ^ mask1.AsByte();
+                var shufMask = shufTab ^ mask1;
                 data7 = VectorHelper.Shuffle(data7.AsByte(), shufMask).AsUInt64();
 
                 goto _128_done;
@@ -411,7 +411,7 @@ namespace SharpHashing.Crc
                 r11[1] = rdx[1];
                 r11[2] = rdx[2];
 
-                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
 
                 data7 = VectorHelper.ShiftRightInVector(data7, 5);
@@ -430,7 +430,7 @@ namespace SharpHashing.Crc
                 r11[0] = rdx[0];
                 r11[1] = rdx[1];
 
-                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
 
                 data7 = VectorHelper.ShiftRightInVector(data7, 6);
@@ -443,7 +443,7 @@ namespace SharpHashing.Crc
                 // load 1 Byte
                 r11[0] = rdx[0];
 
-                data7 = VectorHelper.Shuffle(Vector128.LoadAligned((byte*)&rsp), smask).AsUInt64();
+                data7 = VectorHelper.Shuffle(rsp, smask).AsUInt64();
                 data7 ^= initialCrc; // xor the initial crc value
 
                 data7 = VectorHelper.ShiftRightInVector(data7, 7);
